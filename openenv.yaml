@@ -1,0 +1,8 @@
+spec_version: 1
+name: cloud-saga-orchestrator
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
+env:
+  ENABLE_WEB_INTERFACE: "true"
