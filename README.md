@@ -14,25 +14,49 @@ tags:
 
 # 🌩️ Cloud Saga Orchestrator (OpenEnv)
 
-**A high-fidelity Reinforcement Learning environment tackling a $17B enterprise problem: Cloud "Zombie Resources" and Distributed State Failures.**
+**A high-fidelity Reinforcement Learning environment tackling a $44.5B enterprise problem: Cloud "Zombie Resources" and Distributed State Failures.**
 
 ---
 
-## 📖 Motivation & Real-World Utility (The "Why")
+## 📖 The Origin Story & The Real-World Problem
 
-When massive enterprises provision cloud infrastructure (VPCs, IPs, Disks, VMs), they rely on Directed Acyclic Graphs (DAGs). If a provisioning sequence fails halfway through (e.g., a sudden GPU quota error or network timeout), standard deterministic scripts often crash, leaving partial infrastructure running indefinitely. These are known as **"Zombie Resources,"** costing companies billions annually in wasted cloud spend (FinOps). 
+During my years managing heavy enterprise ERP infrastructure like SAP Basis, I repeatedly ran into the same operational nightmare: asynchronous cloud provisioning failures. 
 
-Furthermore, resolving these partial failures requires implementing the **Saga Pattern**—a complex distributed systems concept where an agent must traverse a dependency graph backward to safely tear down resources. Standard LLMs fail at this because they lack temporal reasoning, panic during timeouts, or execute teardowns out of order (causing dependency lock-ups).
+When enterprises deploy architecture (VPCs, IPs, Disks, VMs), they rely on strict Directed Acyclic Graphs (DAGs). If a deployment fails halfway through—say, a sudden GPU quota error or a gateway timeout—standard deterministic scripts simply crash. They leave the successfully provisioned resources spinning endlessly in the void. These are known as **"Zombie Resources."**
 
-This environment trains an RL Agent to act as a **Resilient DevOps Orchestrator**. The agent must provision a strict DAG, gracefully handle asynchronous API failures, and mathematically execute clean aborts to minimize the financial burn rate.
+This isn't a theoretical issue. According to recent industry research (like the *FinOps in Focus* report), an estimated **$44.5 Billion** in enterprise cloud spend is wasted annually, with orphaned and idle resources being a primary culprit. 
+
+Resolving these partial failures requires the **Saga Pattern**—a complex distributed systems concept where an agent must catch the failure and traverse the dependency graph *backward* to safely tear down the infrastructure. Standard LLMs fail at this. They lack temporal reasoning, panic during timeouts, or execute teardowns out of order (causing 409 dependency lock-ups).
+
+I built the **Cloud Saga Orchestrator** to train RL Agents to act as Resilient DevOps Orchestrators. The agent must provision a strict DAG, gracefully handle injected API failures, and mathematically execute "Clean Aborts" to bring the financial burn rate back to $0.00.
 
 ---
 
 ## 🛡️ Anti-Reward Hacking Design
 
-As highlighted in RL safety research, agents often "game" the verifier (e.g., deleting a test timer to maximize a score). **The Cloud Saga Orchestrator structurally prevents reward hacking.** * The environment's dependency matrix (`DEPENDS_ON` and `REQUIRED_FOR`) is immutable on the server side. 
+As highlighted in RL safety research, agents often "game" the verifier. **This environment structurally prevents reward hacking:**
+* The environment's dependency matrix (`DEPENDS_ON` and `REQUIRED_FOR`) is immutable on the server side. 
 * The agent cannot spoof a successful teardown or fake a `200 OK` status; it must execute the topologically correct sequence of API calls.
-* The dense reward signal is tied directly to the `hourly_burn_rate`. The only way to stop bleeding points is to successfully complete the architecture or execute a flawless "Clean Abort" to bring the burn rate back to $0.00.
+* The dense reward signal is tied directly to the `hourly_burn_rate`. The only way to stop bleeding points is to successfully complete the architecture or execute a flawless rollback.
+
+---
+
+## 👨‍💻 Manual Testing Guide (For the Judges)
+
+Want to see the engine in action? Head over to the **App** tab -> `/docs` and try to beat the environment yourself.
+
+**1. The Dependency Trap:**
+* Go to `POST /step`. Try to create the `gpu_vm` first. 
+* *Result:* The engine mathematically blocks you with a `400 Bad Request: Missing dependencies ['ip', 'disk']`.
+
+**2. The FinOps Burn Rate:**
+* Go to `POST /step` and create the `vpc`.
+* *Result:* `201 Created`. Notice your `hourly_burn_rate` goes up to `0.1`. You are now bleeding virtual money every step until you finish or clean up.
+
+**3. The Medium Task (Simulated Outage & Pivot):**
+* Create the `ip`, then the `disk`. Now try to create the `gpu_vm`.
+* *Result:* **BAM.** You hit a `403 Insufficient Quota: Out of GPUs`. 
+* *The Test:* You must now delete the `disk`, `ip`, and `vpc` in exact reverse order to achieve a `WIN: Clean Abort detected` and save the company's budget.
 
 ---
 
@@ -42,40 +66,31 @@ As highlighted in RL safety research, agents often "game" the verifier (e.g., de
 The agent interacts with a strict JSON Pydantic schema representing internal API commands.
 * `command` (str): `create`, `delete`, or `check_status`.
 * `resource_type` (str): `vpc`, `ip`, `disk`, `gpu_vm`, `dns`.
-* `resource_id` (str, optional): The target ID for deletion or status checks.
 
 ### Observation Space (Environment -> Agent)
 The environment returns a comprehensive state tensor mocking a real cloud console.
-* `message` (str): API response context (e.g., "403 Insufficient Quota", "201 Created").
+* `message` (str): API response context (e.g., "403 Insufficient Quota").
 * `last_status_code` (int): HTTP status of the immediate prior action.
 * `active_resources` (dict): The live, tracked state of the infrastructure graph.
-* `hourly_burn_rate` (float): The current financial cost of active resources. Used for dense negative reward shaping.
+* `hourly_burn_rate` (float): The financial cost of active resources (used for dense negative reward shaping).
 
 ---
 
-## 🎯 Task Difficulties & Grading
+## 🚀 Setup & Automated Evaluation
 
-The environment evaluates the agent's ability to maintain a clean state under increasing system duress. The deterministic Grader outputs `0.0` to `1.0` based on terminal ledger states.
-
-1. **Easy Task (The Happy Path):** * **Scenario:** 100% API uptime. 
-   * **Goal:** Agent provisions `vpc -> ip -> disk -> gpu_vm -> dns` in perfect topological order.
-2. **Medium Task (The Hard Failure & Pivot):**
-   * **Scenario:** Infrastructure builds successfully until the `gpu_vm` throws a `403 Quota Error`. 
-   * **Goal:** Agent must catch the failure, halt provisioning, and execute a reverse topological teardown (`disk -> ip -> vpc`) to achieve a "Clean Abort" state with a $0 burn rate.
-3. **Hard Task (The Asynchronous Timeout):**
-   * **Scenario:** The `disk` API throws a `504 Gateway Timeout`. The true state is unknown. 
-   * **Goal:** Agent must not blindly create (duplicate error) or delete (404 error). It must issue `check_status`, discover the true state, and execute the exact required rollback sequence.
-
----
-
-## 🚀 Setup & Usage Instructions
-
-### Connect via Python Client (OpenEnv)
-Because this Space is built on the OpenEnv spec, you can install and run it directly in your RL training loops:
+### Run Baseline Inference
+The `inference.py` script is fully configured to evaluate frontier models against all three task difficulties using the mandatory `[START]/[STEP]/[END]` logging format. It utilizes the Hugging Face router.
 
 ```bash
-pip install git+https://huggingface.co/spaces/AamirK/cloud-saga-orchestrator
+export HF_TOKEN="your_hf_token_here"
+python inference.py
 
+Connect via Python Client (OpenEnv)
+Install and run it directly in your RL training loops:
+
+Bash
+pip install git+[https://huggingface.co/spaces/AamirK/cloud-saga-orchestrator](https://huggingface.co/spaces/AamirK/cloud-saga-orchestrator)
+Python
 from cloud_saga_orchestrator import SagaEnvironment, ProvisionAction
 
 # Connect to the live Space
@@ -86,9 +101,3 @@ obs = env.reset(task_level="medium")
 action = ProvisionAction(command="create", resource_type="vpc")
 result = env.step(action)
 print(result.hourly_burn_rate)
-Run Baseline Inference
-A standard inference.py script is included in the repository root to evaluate frontier models against the environment using the mandatory [START]/[STEP]/[END] logging format. It uses the Hugging Face router, so no OpenAI billing is required.
-
-Bash
-export HF_TOKEN="hf_your_token_here"
-python inference.py
