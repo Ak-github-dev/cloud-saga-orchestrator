@@ -75,8 +75,18 @@ def run_inference():
             messages.append({"role": "assistant", "content": agent_reply if not error_msg else "{}"})
             messages.append({"role": "user", "content": f"Observation: {obs.model_dump_json()}"})
             
-        success = (obs.reward > 0.0) 
-        log_end(success=success, steps=step_count, score=obs.reward, rewards=rewards)
+        # --- NEW STRICT SCORING LOGIC ---
+        # Calculate a normalized final score strictly between 0.01 and 0.99
+        if len(env.state.provisioned_graph) == len(env.state.target_architecture):
+            final_score = 0.99
+        elif len(env.state.provisioned_graph) == 0 and env.state.step_count > 0:
+            final_score = 0.99
+        else:
+            progress = len(env.state.provisioned_graph) / len(env.state.target_architecture)
+            final_score = round(max(0.01, min(progress, 0.98)), 2)
+            
+        success = (final_score >= 0.99)
+        log_end(success=success, steps=step_count, score=final_score, rewards=rewards)
 
 if __name__ == "__main__":
     run_inference()

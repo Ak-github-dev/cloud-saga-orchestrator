@@ -43,15 +43,23 @@ def get_tasks():
 
 @app.get("/grader")
 def get_grader():
+    # 1. Win Condition: Built everything successfully (Clamped to 0.99)
     if len(env.state.provisioned_graph) == len(env.state.target_architecture):
-        return {"score": 1.0, "status": "Win - Fully Provisioned"}
+        return {"score": 0.99, "status": "Win - Fully Provisioned"}
+    
+    # 2. Win Condition: Clean Abort (Clamped to 0.99)
     elif len(env.state.provisioned_graph) == 0 and env.state.step_count > 0:
-        return {"score": 1.0, "status": "Win - Clean Abort"}
+        return {"score": 0.99, "status": "Win - Clean Abort"}
+    
+    # 3. Game Over: Zombie Resources (Clamped to 0.01 instead of 0.0)
     elif env.state.step_count >= env.state.max_steps:
-        return {"score": 0.0, "status": "Loss - Zombie Resources Running"}
+        return {"score": 0.01, "status": "Loss - Zombie Resources Running"}
+    
+    # 4. In Progress: Safe fractional score
     else:
         progress = len(env.state.provisioned_graph) / len(env.state.target_architecture)
-        return {"score": round(min(progress, 0.9), 2), "status": "In Progress"}
+        safe_score = round(max(0.01, min(progress, 0.98)), 2)
+        return {"score": safe_score, "status": "In Progress"}
 
 def main():
     uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
